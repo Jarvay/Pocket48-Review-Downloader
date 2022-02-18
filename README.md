@@ -8,3 +8,6 @@
 
 ### Windows
 [下载压缩包](https://wwa.lanzoui.com/b00n47cgd)解压后运行.exe文件
+
+## 其他
+- m3u8下载功能复制了[https://www.jianshu.com/p/a8d8195c7ade](https://www.jianshu.com/p/a8d8195c7ade)的代码
