@@ -1,0 +1,4 @@
+{
+  "max_workers": 8,
+  "ffmpeg": "ffmpeg"
+}
