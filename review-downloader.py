@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from gettext import find
+from multiprocessing import Value
 import requests
 import os
 import json
@@ -8,6 +8,12 @@ import downloader
 import time
 from tqdm import tqdm
 import shutil
+from InquirerPy import prompt, inquirer
+from InquirerPy.base.control import Choice
+from pprint import pprint
+import sys
+
+sys.path.append(os.path.realpath("."))
 
 infomation_file_name = 'infomation.json'
 
@@ -28,18 +34,29 @@ downloads_dir = 'downloads'
 
 class ReviewDownloader():
     def __init__(self) -> None:
-        self.count = 1
+        self.page_count = 0
         self.task_id_set = set()
         self.finish_id_set = set()
+        self.fetched_page = 0
 
-    def get_time(self, timestamp):
+        config = json.loads(open('config.json').read())
+        self.chunk_size = config['page_size']
+        self.default_checked = config['default_checked']
+
+    def get_time(self, timestamp, format='%Y%m%d-%H%M%S'):
         time_array = time.localtime(timestamp)
-        return time.strftime("%Y%m%d-%H%M%S", time_array)
+        return time.strftime(format, time_array)
+
+    def get_review_option_name(self, review):
+        return f'{review["title"]}-{self.get_time(int(review["ctime"]) / 1000, "%Y-%m-%d %H:%M:%S")}'
 
     def print_menu(self):
-        for key in menu_options.keys():
-            print(key + '.', menu_options[key])
-        option = input('请输入选项后按回车[1]:') or '1'
+        option = inquirer.select(message='请选择', choices=[
+            Choice(value=ACTION_DOWNLOAD, name='1.下载成员回放'),
+            Choice(value=ACTION_UPDATE, name='2.更新成员信息'),
+            Choice(value=ACTION_CLEAR, name='3.清空下载目录'),
+            Choice(value=ACTION_EXIT, name='Exit'),
+        ]).execute()
         self.action(option)
 
     def updateMembers(self):
@@ -51,7 +68,7 @@ class ReviewDownloader():
         information = open(infomation_file_name, 'w+')
         information.write(json.dumps(response.json()['content']))
 
-    def get_member_reviews(self, member, next='0'):
+    def get_member_reviews(self, member, review_list=[], next='0'):
         response = requests.post('https://pocketapi.48.cn/live/api/v1/live/getLiveList', json={
             'next': next,
             'userId': member['userId'],
@@ -61,20 +78,42 @@ class ReviewDownloader():
         content = response.json()['content']
         new_next = content['next']
         reviews = content['liveList']
-        for review in reviews:
-            if len(self.task_id_set) < self.count or self.count == 0:
-                self.get_review(review['liveId'], member)
-                self.task_id_set.add(review['liveId'])
-            else:
-                break
 
-        if new_next == next:
-            print('下载完成')
-            self.print_menu()
+        review_list.extend(reviews)
+
+        self.fetched_page += 1
+
+        if new_next == next or self.fetched_page == self.page_count:
+            print(f'拉取完毕，共{len(review_list)}个回放')
+
+            download_all = inquirer.text('是否下载全部拉取到的回放(Y/n)：').execute() or 'y'
+            # 下载全部
+            if download_all == 'y':
+                for review in review_list:
+                    self.task_id_set.add(review['liveId'])
+            # 选择下载
+            else:
+                chunks = self.chunker(review_list, self.chunk_size)
+                nameIds = {}
+                for index, chunk in enumerate(chunks):
+                    items = []
+                    for k, v in enumerate(chunk):
+                        name = self.get_review_option_name(v)
+                        items.append(name)
+                        nameIds[name] = v['liveId']
+                    
+                    result = inquirer.checkbox(
+                        message=f'第{str(index + 1)}页', choices=items, default=items if self.default_checked else []).execute()
+                    for selectedName in result:
+                        self.task_id_set.add(nameIds[selectedName])
+
+            print('开始下载')
+            for id in self.task_id_set:
+                self.get_review(id, member)
             return
 
-        if len(self.task_id_set) < self.count or self.count == 0:
-            self.get_member_reviews(member, new_next)
+        if self.fetched_page < self.page_count or self.page_count == 0:
+            self.get_member_reviews(member, review_list, new_next)
 
     def get_review(self, id, member):
         response = requests.post(
@@ -107,7 +146,7 @@ class ReviewDownloader():
             print(str(index + 1) + '.', member['groupName'] + '-' + member['realName'],
                   'ID-' + str(member['userId']))
 
-        index = input('请输入序号(输入b返回)[1]：') or '1'
+        index = inquirer.text('请输入序号(输入[b]返回)[1]：', default='1').execute() or '1'
         if (index == 'b'):
             self.download_member_review()
             return
@@ -123,13 +162,17 @@ class ReviewDownloader():
             self.select_member(filter_members)
 
         member = filter_members[int(index) - 1]
-        self.count = int(input('请输入下载的最近回放个数(输入0下载全部)[1]:') or 1)
 
-        print('开始下载...')
+        self.page_count = int(inquirer.number('请输入拉取的页数(默认拉取全部)[0]:', default=0).execute() or 0)
+
+        self.reviews_file_name = downloads_dir + '//' + \
+            f'{member["realName"]}-{member["userId"]}.json'
+
+        print('开始拉取成员回放列表...')
         self.get_member_reviews(member)
 
     def download_member_review(self):
-        member_name = input('请输入成员的名字或名字首字母(输入b返回):')
+        member_name = inquirer.text(message='请输入成员的名字或名字首字母', instruction='(输入[b]返回):').execute()
         if member_name == 'b':
             self.print_menu()
             return
@@ -160,22 +203,22 @@ class ReviewDownloader():
             self.print_menu()
 
     def download_mp4(self, url, dst):
-        response = requests.get(url, stream=True)  # (1)
-        file_size = int(response.headers['content-length'])  # (2)
+        response = requests.get(url, stream=True)
+        file_size = int(response.headers['content-length'])
         if os.path.exists(dst):
-            first_byte = os.path.getsize(dst)  # (3)
+            first_byte = os.path.getsize(dst)
         else:
             first_byte = 0
-        if first_byte >= file_size:  # (4)
+        if first_byte >= file_size:
             return file_size
 
         header = {"Range": f"bytes={first_byte}-{file_size}"}
 
         pbar = tqdm(total=file_size, initial=first_byte,
                     unit='B', unit_scale=True, desc=dst)
-        req = requests.get(url, headers=header, stream=True)  # (5)
+        req = requests.get(url, headers=header, stream=True)
         with open(dst, 'ab') as f:
-            for chunk in req.iter_content(chunk_size=1024):     # (6)
+            for chunk in req.iter_content(chunk_size=1024):
                 if chunk:
                     f.write(chunk)
                     pbar.update(1024)
@@ -188,6 +231,14 @@ class ReviewDownloader():
         print()
         print('已清空')
         print()
+
+    def chunker(self, iter, size):
+        chunks = []
+        if size < 1:
+            raise ValueError('Chunk size must be greater than 0.')
+        for i in range(0, len(iter), size):
+            chunks.append(iter[i:(i+size)])
+        return chunks
 
     def start(self):
         if not os.path.exists(downloads_dir):

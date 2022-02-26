@@ -1,4 +1,6 @@
 {
-  "max_workers": 8,
-  "ffmpeg": "ffmpeg"
+  "max_workers": 10,
+  "ffmpeg": "ffmpeg",
+  "page_size": 20,
+  "default_checked": true
 }
