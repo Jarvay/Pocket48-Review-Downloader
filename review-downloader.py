@@ -35,8 +35,7 @@ downloads_dir = 'downloads'
 class ReviewDownloader():
     def __init__(self) -> None:
         self.page_count = 0
-        self.task_id_set = set()
-        self.finish_id_set = set()
+        self.task_id_set = []
         self.fetched_page = 0
 
         config = json.loads(open('config.json').read())
@@ -90,7 +89,7 @@ class ReviewDownloader():
             # 下载全部
             if download_all == 'y':
                 for review in review_list:
-                    self.task_id_set.add(review['liveId'])
+                    self.task_id_set.append(review['liveId'])
             # 选择下载
             else:
                 chunks = self.chunker(review_list, self.chunk_size)
@@ -98,14 +97,13 @@ class ReviewDownloader():
                 for index, chunk in enumerate(chunks):
                     items = []
                     for k, v in enumerate(chunk):
-                        name = self.get_review_option_name(v)
-                        items.append(name)
-                        nameIds[name] = v['liveId']
-                    
+                        item = Choice(value=v['liveId'], name=self.get_review_option_name(v), enabled=self.default_checked)
+                        items.append(item)
+
                     result = inquirer.checkbox(
-                        message=f'第{str(index + 1)}页', choices=items, default=items if self.default_checked else []).execute()
-                    for selectedName in result:
-                        self.task_id_set.add(nameIds[selectedName])
+                        message=f'第{str(index + 1)}页', choices=items).execute()
+                    for live_id in result:
+                        self.task_id_set.append(live_id)
 
             print('开始下载')
             for id in self.task_id_set:
