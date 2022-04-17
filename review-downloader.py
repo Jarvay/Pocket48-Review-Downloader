@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from multiprocessing import Value
-import requests
-import os
 import json
-import downloader
-import time
-from tqdm import tqdm
+import os
+import requests
 import shutil
+import sys
+import time
 from InquirerPy import prompt, inquirer
 from InquirerPy.base.control import Choice
+from multiprocessing import Value
 from pprint import pprint
-import sys
+from tqdm import tqdm
+
+import downloader
 
 sys.path.append(os.path.realpath("."))
 
@@ -34,6 +35,7 @@ downloads_dir = 'downloads'
 
 class ReviewDownloader():
     def __init__(self) -> None:
+        self.reviews_file_name = None
         self.page_count = 0
         self.task_id_set = []
         self.fetched_page = 0
@@ -41,8 +43,10 @@ class ReviewDownloader():
         config = json.loads(open('config.json').read())
         self.chunk_size = config['page_size']
         self.default_checked = config['default_checked']
+        self.max_retry_count = config['max_retry_count']
 
-    def get_time(self, timestamp, format='%Y%m%d-%H%M%S'):
+    @staticmethod
+    def get_time(timestamp, format='%Y%m%d-%H%M%S'):
         time_array = time.localtime(timestamp)
         return time.strftime(format, time_array)
 
@@ -58,7 +62,8 @@ class ReviewDownloader():
         ]).execute()
         self.action(option)
 
-    def updateMembers(self):
+    @staticmethod
+    def update_members():
         print('正在更新成员信息...')
         response = requests.post(
             'https://pocketapi.48.cn/user/api/v1/client/update/group_team_star',
@@ -67,7 +72,9 @@ class ReviewDownloader():
         information = open(infomation_file_name, 'w+')
         information.write(json.dumps(response.json()['content']))
 
-    def get_member_reviews(self, member, review_list=[], next='0'):
+    def get_member_reviews(self, member, review_list=None, next='0'):
+        if review_list is None:
+            review_list = []
         response = requests.post('https://pocketapi.48.cn/live/api/v1/live/getLiveList', json={
             'next': next,
             'userId': member['userId'],
@@ -93,11 +100,11 @@ class ReviewDownloader():
             # 选择下载
             else:
                 chunks = self.chunker(review_list, self.chunk_size)
-                nameIds = {}
                 for index, chunk in enumerate(chunks):
                     items = []
                     for k, v in enumerate(chunk):
-                        item = Choice(value=v['liveId'], name=self.get_review_option_name(v), enabled=self.default_checked)
+                        item = Choice(value=v['liveId'], name=self.get_review_option_name(v),
+                                      enabled=self.default_checked)
                         items.append(item)
 
                     result = inquirer.checkbox(
@@ -113,30 +120,39 @@ class ReviewDownloader():
         if self.fetched_page < self.page_count or self.page_count == 0:
             self.get_member_reviews(member, review_list, new_next)
 
+    def download_review(self, stream_path, member_dir, file_name, retry_count=0):
+        dst = member_dir + '//' + file_name
+        if not os.path.exists(dst):
+            try:
+                if stream_path.endswith('.m3u8'):
+                    downloader.Downloader(stream_path, member_dir,
+                                          file_name).run()
+                else:
+                    self.download_mp4(stream_path, dst)
+            except:
+                if retry_count < self.max_retry_count:
+                    print('下载失败，重试')
+                    self.download_review(stream_path, member_dir, file_name, retry_count + 1)
+                else:
+                    print('重试次数超过预设值，跳过')
+
+        else:
+            print('已下载，跳过')
+
     def get_review(self, id, member):
         response = requests.post(
             'https://pocketapi.48.cn/live/api/v1/live/getLiveOne', json={
                 'liveId': id
             })
         review = response.json()['content']
-        dir = downloads_dir + '//' + member['realName']
-        if not os.path.exists(dir):
-            os.mkdir(dir)
+        member_dir = downloads_dir + '//' + member['realName']
+        if not os.path.exists(member_dir):
+            os.mkdir(member_dir)
         print('开始下载：', review['title'])
-        file_name: str = member['realName'] + '-' + \
-            self.get_time(int(review['ctime']) / 1000) + '.mp4'
+        file_name: str = member['realName'] + '-' + self.get_time(int(review['ctime']) / 1000) + '.mp4'
 
-        dst = dir + '//' + file_name
-        playStreamPath = review['playStreamPath']
-        if not os.path.exists(dst):
-            if playStreamPath.endswith('.m3u8'):
-                downloader.Downloader(playStreamPath, dir,
-                                      file_name).run()
-            else:
-                self.download_mp4(playStreamPath, dst)
-
-        else:
-            print('已下载，跳过')
+        play_stream_path = review['playStreamPath']
+        self.download_review(play_stream_path, member_dir, file_name)
 
     def select_member(self, filter_members):
         print('找到以下成员：')
@@ -145,7 +161,7 @@ class ReviewDownloader():
                   'ID-' + str(member['userId']))
 
         index = inquirer.text('请输入序号(输入[b]返回)[1]：', default='1').execute() or '1'
-        if (index == 'b'):
+        if index == 'b':
             self.download_member_review()
             return
 
@@ -164,7 +180,7 @@ class ReviewDownloader():
         self.page_count = int(inquirer.number('请输入拉取的页数(默认拉取全部)[0]:', default=0).execute() or 0)
 
         self.reviews_file_name = downloads_dir + '//' + \
-            f'{member["realName"]}-{member["userId"]}.json'
+                                 f'{member["realName"]}-{member["userId"]}.json'
 
         print('开始拉取成员回放列表...')
         self.get_member_reviews(member)
@@ -179,7 +195,7 @@ class ReviewDownloader():
         members = list(json.loads(file.read())['starInfo'])
         filter_members = list(filter(
             lambda member: member['realName'].find(member_name) != -1
-            or member['abbr'].find(member_name) != -1, members))
+                           or member['abbr'].find(member_name) != -1, members))
         if len(filter_members) == 0:
             print('没有找到符合条件的成员')
             self.download_member_review()
@@ -190,7 +206,7 @@ class ReviewDownloader():
         if option == ACTION_DOWNLOAD:
             self.download_member_review()
         elif option == ACTION_UPDATE:
-            self.updateMembers()
+            self.update_members()
             self.print_menu()
         elif option == ACTION_EXIT:
             print('退出')
@@ -200,7 +216,8 @@ class ReviewDownloader():
         else:
             self.print_menu()
 
-    def download_mp4(self, url, dst):
+    @staticmethod
+    def download_mp4(url, dst):
         response = requests.get(url, stream=True)
         file_size = int(response.headers['content-length'])
         if os.path.exists(dst):
@@ -230,19 +247,20 @@ class ReviewDownloader():
         print('已清空')
         print()
 
-    def chunker(self, iter, size):
+    @staticmethod
+    def chunker(iter, size):
         chunks = []
         if size < 1:
             raise ValueError('Chunk size must be greater than 0.')
         for i in range(0, len(iter), size):
-            chunks.append(iter[i:(i+size)])
+            chunks.append(iter[i:(i + size)])
         return chunks
 
     def start(self):
         if not os.path.exists(downloads_dir):
             os.mkdir(downloads_dir)
         if not os.path.exists(infomation_file_name):
-            self.updateMembers()
+            self.update_members()
             self.print_menu()
         else:
             self.print_menu()
