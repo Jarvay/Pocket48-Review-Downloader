@@ -1,0 +1,10 @@
+build
+dist
+downloads
+venv
+information.json
+review-downloader.spec
+**/node_modules
+**/.idea
+**/yarn-error.log
+**/yarn.lock

@@ -16,7 +16,7 @@ import downloader
 
 sys.path.append(os.path.realpath("."))
 
-infomation_file_name = 'infomation.json'
+infomation_file_name = 'information.json'
 
 ACTION_DOWNLOAD = '1'
 ACTION_UPDATE = '2'
