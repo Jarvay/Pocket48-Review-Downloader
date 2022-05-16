@@ -72,53 +72,50 @@ class ReviewDownloader():
         information = open(infomation_file_name, 'w+')
         information.write(json.dumps(response.json()['content']))
 
-    def get_member_reviews(self, member, review_list=None, next='0'):
-        if review_list is None:
-            review_list = []
+    def get_member_reviews(self, member, next_page='0'):
         response = requests.post('https://pocketapi.48.cn/live/api/v1/live/getLiveList', json={
-            'next': next,
+            'next': next_page,
             'userId': member['userId'],
             'loadMore': True,
             'record': True
         })
+        self.fetched_page += 1
         content = response.json()['content']
         new_next = content['next']
-        reviews = content['liveList']
+        reviews = list(filter(lambda r: str(r['userInfo']['userId']) == str(member['userId']), content['liveList']))
 
-        review_list.extend(reviews)
+        print(content['liveList'][0]['userInfo'])
+        print(type(member['userId']))
 
-        self.fetched_page += 1
-
-        if new_next == next or self.fetched_page == self.page_count:
-            print(f'拉取完毕，共{len(review_list)}个回放')
-
-            download_all = inquirer.text('是否下载全部拉取到的回放(Y/n)：').execute() or 'y'
-            # 下载全部
-            if download_all == 'y':
-                for review in review_list:
-                    self.task_id_set.append(review['liveId'])
-            # 选择下载
-            else:
-                chunks = self.chunker(review_list, self.chunk_size)
-                for index, chunk in enumerate(chunks):
-                    items = []
-                    for k, v in enumerate(chunk):
-                        item = Choice(value=v['liveId'], name=self.get_review_option_name(v),
-                                      enabled=self.default_checked)
-                        items.append(item)
-
-                    result = inquirer.checkbox(
-                        message=f'第{str(index + 1)}页', choices=items).execute()
-                    for live_id in result:
-                        self.task_id_set.append(live_id)
-
-            print('开始下载')
-            for id in self.task_id_set:
-                self.get_review(id, member)
+        if len(reviews) == 0:
+            self.get_member_reviews(member, new_next)
             return
 
-        if self.fetched_page < self.page_count or self.page_count == 0:
-            self.get_member_reviews(member, review_list, new_next)
+        items = []
+        for review in reviews:
+            item = Choice(value=review['liveId'], name=self.get_review_option_name(review),
+                          enabled=self.default_checked)
+            items.append(item)
+
+        result = inquirer.checkbox(
+            message=f'第{str(self.fetched_page)}页', choices=items).execute()
+        print('result', result)
+
+        for live_id in result:
+            self.task_id_set.append(live_id)
+
+        go_on = inquirer.text('是否继续选择下一页(Y/n)：').execute() or 'y'
+        if go_on == 'y':
+            self.get_member_reviews(member, new_next)
+        else:
+            print(f'选择完毕，开始下载')
+            for id in self.task_id_set:
+                self.get_review(id, member)
+
+        if new_next == next_page:
+            print(f'选择完毕，开始下载')
+            for id in self.task_id_set:
+                self.get_review(id, member)
 
     def download_review(self, stream_path, member_dir, file_name, retry_count=0):
         dst = member_dir + '//' + file_name
@@ -176,8 +173,6 @@ class ReviewDownloader():
             self.select_member(filter_members)
 
         member = filter_members[int(index) - 1]
-
-        self.page_count = int(inquirer.number('请输入拉取的页数(默认拉取全部)[0]:', default=0).execute() or 0)
 
         self.reviews_file_name = downloads_dir + '//' + \
                                  f'{member["realName"]}-{member["userId"]}.json'
