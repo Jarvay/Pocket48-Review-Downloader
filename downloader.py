@@ -28,7 +28,8 @@ class Downloader():
         self.tmp_folder = 'temp'
 
         self.session = requests.Session()
-        self.session.headers.update({'User-Agent': Faker().user_agent()})
+        self.session.headers.update({'User-Agent': 'SNH48 ENGINE'})
+        self.session.headers.update({'HOST': 'cychengyuan-vod.48.cn'})
         self.session.verify = False
 
         self.proxies = {}

@@ -32,6 +32,10 @@ menu_options = {
 
 downloads_dir = 'downloads'
 
+headers = {
+    'host': 'cychengyuan-vod.48.cn'
+}
+
 
 class ReviewDownloader():
     def __init__(self) -> None:
