@@ -14,7 +14,7 @@ urllib3.disable_warnings()
 
 
 class Downloader():
-    def __init__(self, url, dst=None, filename=None):
+    def __init__(self, url, dst=None, filename=None, save_as_mp3=False):
         """
         :param url: m3u8 文件下载地址
         :param dst: 指定下载视频文件输出目录，不指定则为当前目录
@@ -37,6 +37,7 @@ class Downloader():
         config = json.loads(open('config.json').read())
         self.max_workers = config['max_workers']
         self.ffmpeg = config['ffmpeg']
+        self.save_as_mp3 = save_as_mp3
 
     def parse_m3u8_url(self):
         """
@@ -114,8 +115,11 @@ class Downloader():
             fp.write(txt_content)
 
         # 拼接ts文件
-        command = f'{self.ffmpeg} -f concat -safe 0 -i {self.tmp_folder}/{txt_filename} -c copy {self.dst}/{self.filename}'
+        command = f'{self.ffmpeg} -f concat -safe 0 -i {self.tmp_folder}/{txt_filename} -c copy {self.dst}/{self.filename}.mp4'
         os.system(command)
+        if self.save_as_mp3:
+            os.system(f'{self.ffmpeg} -i {self.dst}/{self.filename}.mp4 -f mp3 {self.dst}/{self.filename}.mp3')
+            os.remove(Path(self.dst) / f'{self.filename}.mp4')
 
         # 删除txt文件
         if txt_filepath.exists():

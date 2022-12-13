@@ -2,6 +2,7 @@
   "max_workers": 10,
   "ffmpeg": "ffmpeg",
   "page_size": 20,
-  "default_checked": true,
-  "max_retry_count": 3
+  "default_checked": false,
+  "max_retry_count": 3,
+  "always_mp4": false
 }

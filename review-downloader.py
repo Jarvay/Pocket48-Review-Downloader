@@ -8,15 +8,14 @@ import sys
 import time
 from InquirerPy import prompt, inquirer
 from InquirerPy.base.control import Choice
-from multiprocessing import Value
-from pprint import pprint
+import enum
 from tqdm import tqdm
 
 import downloader
 
 sys.path.append(os.path.realpath("."))
 
-infomation_file_name = 'infomation.json'
+information_file_name = 'information.json'
 
 ACTION_DOWNLOAD = '1'
 ACTION_UPDATE = '2'
@@ -37,6 +36,11 @@ headers = {
 }
 
 
+class LiveType(enum.Enum):
+    Video = 1
+    Radio = 2
+
+
 class ReviewDownloader():
     def __init__(self) -> None:
         self.reviews_file_name = None
@@ -48,6 +52,7 @@ class ReviewDownloader():
         self.chunk_size = config['page_size']
         self.default_checked = config['default_checked']
         self.max_retry_count = config['max_retry_count']
+        self.always_mp4 = config['always_mp4']
 
     @staticmethod
     def get_time(timestamp, format='%Y%m%d-%H%M%S'):
@@ -55,7 +60,8 @@ class ReviewDownloader():
         return time.strftime(format, time_array)
 
     def get_review_option_name(self, review):
-        return f'{review["title"]}-{self.get_time(int(review["ctime"]) / 1000, "%Y-%m-%d %H:%M:%S")}'
+        live_type = '电台' if review['liveType'] == LiveType.Radio.value else '直播'
+        return f'{live_type} {review["title"]}-{self.get_time(int(review["ctime"]) / 1000, "%Y-%m-%d %H:%M:%S")}'
 
     def print_menu(self):
         option = inquirer.select(message='请选择', choices=[
@@ -73,7 +79,7 @@ class ReviewDownloader():
             'https://pocketapi.48.cn/user/api/v1/client/update/group_team_star',
             json={},
             headers={'Content-Type': 'application/json'})
-        information = open(infomation_file_name, 'w+')
+        information = open(information_file_name, 'w+')
         information.write(json.dumps(response.json()['content']))
 
     def get_member_reviews(self, member, next_page='0'):
@@ -87,9 +93,6 @@ class ReviewDownloader():
         content = response.json()['content']
         new_next = content['next']
         reviews = list(filter(lambda r: str(r['userInfo']['userId']) == str(member['userId']), content['liveList']))
-
-        print(content['liveList'][0]['userInfo'])
-        print(type(member['userId']))
 
         if len(reviews) == 0:
             self.get_member_reviews(member, new_next)
@@ -121,19 +124,19 @@ class ReviewDownloader():
             for id in self.task_id_set:
                 self.get_review(id, member)
 
-    def download_review(self, stream_path, member_dir, file_name, retry_count=0):
+    def download_review(self, stream_path, member_dir, file_name, retry_count=0, save_as_mp3=False):
         dst = member_dir + '//' + file_name
         if not os.path.exists(dst):
             try:
                 if stream_path.endswith('.m3u8'):
                     downloader.Downloader(stream_path, member_dir,
-                                          file_name).run()
+                                          file_name, save_as_mp3).run()
                 else:
                     self.download_mp4(stream_path, dst)
             except:
                 if retry_count < self.max_retry_count:
                     print('下载失败，重试')
-                    self.download_review(stream_path, member_dir, file_name, retry_count + 1)
+                    self.download_review(stream_path, member_dir, file_name, retry_count + 1, save_as_mp3)
                 else:
                     print('重试次数超过预设值，跳过')
 
@@ -150,10 +153,12 @@ class ReviewDownloader():
         if not os.path.exists(member_dir):
             os.mkdir(member_dir)
         print('开始下载：', review['title'])
-        file_name: str = member['realName'] + '-' + self.get_time(int(review['ctime']) / 1000) + '.mp4'
+
+        file_name: str = member['realName'] + '-' + self.get_time(int(review['ctime']) / 1000)
 
         play_stream_path = review['playStreamPath']
-        self.download_review(play_stream_path, member_dir, file_name)
+        save_as_mp3 = (self.always_mp4 is False) and review['liveType'] == LiveType.Radio.value
+        self.download_review(play_stream_path, member_dir, file_name, save_as_mp3=save_as_mp3)
 
     def select_member(self, filter_members):
         print('找到以下成员：')
@@ -190,7 +195,7 @@ class ReviewDownloader():
             self.print_menu()
             return
 
-        file = open(infomation_file_name)
+        file = open(information_file_name)
         members = list(json.loads(file.read())['starInfo'])
         filter_members = list(filter(
             lambda member: member['realName'].find(member_name) != -1
@@ -258,7 +263,7 @@ class ReviewDownloader():
     def start(self):
         if not os.path.exists(downloads_dir):
             os.mkdir(downloads_dir)
-        if not os.path.exists(infomation_file_name):
+        if not os.path.exists(information_file_name):
             self.update_members()
             self.print_menu()
         else:
