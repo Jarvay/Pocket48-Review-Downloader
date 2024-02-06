@@ -10,7 +10,7 @@
 [下载压缩包](https://wwa.lanzoui.com/b00n47cgd)解压后运行.exe文件
 
 ### 配置文件说明
-```json lines
+```json5 lines
 {
   "max_workers": 10, // 同时下载线程数
   "ffmpeg": "ffmpeg", // ffmpeg路径
