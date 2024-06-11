@@ -129,7 +129,8 @@ class Downloader():
     def remove_ts_file(ts_file_paths):
         for row in ts_file_paths:
             try:
-                os.remove(row)
+                if os.path.exists(row):
+                    os.remove(row)
             except Exception as e:
                 print_exc(e)
 
