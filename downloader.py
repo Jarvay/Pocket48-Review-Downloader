@@ -8,12 +8,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from tqdm import tqdm
-from faker import Faker
+import re
 
 urllib3.disable_warnings()
 
 
-class Downloader():
+class Downloader:
     def __init__(self, url, dst=None, filename=None, save_as_mp3=False):
         """
         :param url: m3u8 文件下载地址
@@ -27,9 +27,13 @@ class Downloader():
         # ts 文件缓存目录
         self.tmp_folder = 'temp'
 
+        pattern = r'https?://([a-zA-Z0-9-.]+)/'
+        match = re.match(pattern, url)
+        host = match.group(1) or 'cychengyuan-vod.48.cn'
+
         self.session = requests.Session()
         self.session.headers.update({'User-Agent': 'SNH48 ENGINE'})
-        self.session.headers.update({'HOST': 'cychengyuan-vod.48.cn'})
+        self.session.headers.update({'HOST': host})
         self.session.verify = False
 
         self.proxies = {}
