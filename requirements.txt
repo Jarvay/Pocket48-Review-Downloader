@@ -1,4 +1,4 @@
-requests==2.22.0
-faker==12.3.3
-tqdm==4.62.3
-InquirerPy>=0.3.3
+requests>=2.31.0
+faker>=20.0.0
+tqdm>=4.66.0
+InquirerPy>=0.3.4
